@@ -46,6 +46,11 @@ mm_replayserver_SOURCES = replayserver.cc
 mm_replayserver_LDADD = -lrt ../util/libutil.a ../http/libhttp.a ../protobufs/libhttprecordprotos.a $(protobuf_LIBS)
 mm_replayserver_LDFLAGS = -pthread
 
+bin_PROGRAMS += mm-advlink
+mm_advlink_SOURCES = adv_linkshell.cc adv_link_queue.hh adv_link_queue.cc 
+mm_advlink_LDADD = -lrt ../util/libutil.a ../packet/libpacket.a ../graphing/libgraph.a $(XCBPRESENT_LIBS) $(XCB_LIBS) $(PANGOCAIRO_LIBS)
+mm_advlink_LDFLAGS = -pthread
+
 lib_LTLIBRARIES = libmod_deepcgi.la
 libmod_deepcgi_la_SOURCES = mod_deepcgi.c replayserver_filename.cc
 libmod_deepcgi_la_CFLAGS = -I@APACHE2_INCLUDE@ $(libapr1_CFLAGS)
@@ -62,6 +67,8 @@ install-exec-hook:
 	chmod u+s $(DESTDIR)$(bindir)/mm-intermittent
 	chown root $(DESTDIR)$(bindir)/mm-link
 	chmod u+s $(DESTDIR)$(bindir)/mm-link
+	chown root $(DESTDIR)$(bindir)/mm-advlink
+	chmod u+s $(DESTDIR)$(bindir)/mm-advlink
 	chown root $(DESTDIR)$(bindir)/mm-meter
 	chmod u+s $(DESTDIR)$(bindir)/mm-meter
 	chown root $(DESTDIR)$(bindir)/mm-webrecord
