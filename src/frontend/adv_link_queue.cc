@@ -334,7 +334,7 @@ Adversary::Adversary(const std::string &adversary_logfile)
                   probe_thread_exception_ = current_exception();
               } } ),
       probe_time_()
-
+      //adv_link_queue_()
 {
     /* open logfile if called for */
     if ( not adversary_logfile.empty() ) {

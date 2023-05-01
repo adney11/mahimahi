@@ -37,6 +37,8 @@ private:
     
     uint64_t probe_time_;
 
+    //#AdvLinkQueue* adv_linkqueue_;
+
     void probe_loop( void );
 
 public:
