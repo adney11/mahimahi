@@ -38,6 +38,7 @@ private:
     uint64_t probe_time_;
 
     //#AdvLinkQueue* adv_linkqueue_;
+    // enter call back function for update
 
     void probe_loop( void );
 

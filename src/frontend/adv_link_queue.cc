@@ -389,6 +389,10 @@ double Adversary::get_link_utilization( void )
     double link_util = (double) num_packet_departure_ / (double) num_packet_departure_opportunity_;
     // num_packet_departure_ = 0;
     // num_packet_departure_ = 0;
+    if (link_util < 0)
+        link_util = 0;
+    if (link_util > 100)
+        link_util = 100;
     return link_util;
 }
 
@@ -406,7 +410,7 @@ void Adversary::log_state( const uint64_t now, double link_util, uint64_t queuei
 {
     if ( log_ ) 
     {
-        *log_ << now << ", " << link_util * 100 << ", " << queueing_delay << std::endl;
+        *log_ << now << ", " << int(link_util * 100) << ", " << queueing_delay << std::endl;
     }
 }
 
