@@ -7,6 +7,8 @@
 
 using namespace std;
 
+
+// Note: Just need to check if new delay was specified in the shared file 
 void DelayQueue::read_packet( const string & contents )
 {
     packet_queue_.emplace( timestamp() + delay_ms_, contents );

@@ -147,7 +147,7 @@ void* flow_data_handler(void* info)
             usleep(50);
         }
         send_counts++;
-        inform("sent %d KB to client %d, %d times", start_len, flowid, send_counts);
+        //inform("sent %d KB to client %d, %d times", start_len, flowid, send_counts);
         usleep(100);
     }
     inform("finished sending data chunk of size: %d KB", datasize);
@@ -252,7 +252,7 @@ int main( int argc, char *argv[] )
     for (i = 0; i < num_flows; i++)
     {
         char container_cmd[500];
-        sprintf(container_cmd, "%s/test_advlinkshell_client $MAHIMAHI_BASE %d", path, port_base+i);
+        sprintf(container_cmd, "%s/test_advlinkshell_client $MAHIMAHI_BASE %d %d", path, port_base+i, i);
         
         // make log paths here
         char downlink_advlogpath[500];
@@ -274,6 +274,7 @@ int main( int argc, char *argv[] )
 
 
     // start server listen here
+    inform("starting server listen for %d flows", num_flows);
     int maxfdp = -1;
     fd_set rset;
     FD_ZERO(&rset);
@@ -281,28 +282,9 @@ int main( int argc, char *argv[] )
     for (i = 0; i < num_flows; i++)
     {
         listen(sock[i], 1);
-        FD_SET(sock[i], &rset);
-        if (sock[i] > maxfdp)
-            maxfdp = sock[i];
     }
 
-    maxfdp=maxfdp + 1;
-    struct timeval timeout;
-    timeout.tv_sec = SERVER_TIMEOUT;
-    timeout.tv_usec = 0;
-    int rc = select(maxfdp, &rset, NULL, NULL, &timeout);
 
-    if (rc < 0)
-    {
-        error("select failed");
-        return 0;
-    }
-
-    if (rc == 0)
-    {
-        error("server timed out");
-        return 0;
-    }
 
     int sin_size = sizeof(struct sockaddr_in);
 
@@ -316,8 +298,35 @@ int main( int argc, char *argv[] )
     initial_timestamp();
     while(flow_index < num_flows)
     {
+        FD_ZERO(&rset);
+        for (i = 0; i < num_flows; i++)
+        {
+            FD_SET(sock[i], &rset);
+            if (sock[i] > maxfdp)
+                maxfdp = sock[i];
+        }
+        maxfdp=maxfdp + 1;
+        struct timeval timeout;
+        timeout.tv_sec = SERVER_TIMEOUT;
+        timeout.tv_usec = 0;
+        int rc = select(maxfdp, &rset, NULL, NULL, &timeout);
+
+        if (rc < 0)
+        {
+            error("select failed");
+            return 0;
+        }
+
+        if (rc == 0)
+        {
+            error("server timed out");
+            return 0;
+        }
+        
+        inform("waiting on flow index: %d", flow_index);
         if (FD_ISSET(sock[flow_index], &rset))
         {
+            inform("trying to accept connection for flow %d", flow_index);
             int value = accept(sock[flow_index], (struct sockaddr*)&client_addr[flow_index], (socklen_t*)&sin_size);
             if (value < 0)
             {
@@ -326,6 +335,7 @@ int main( int argc, char *argv[] )
                 return 0;
             }
 
+            inform("trying to create data thread for flow %d, sock[%d]: %d with accepted socket: %d", flow_index, flow_index, sock[flow_index], value);
             // create data thread for this flow here
             flows[flow_index].flowid = flow_index;
             flows[flow_index].sock = value;

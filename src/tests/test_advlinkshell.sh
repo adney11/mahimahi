@@ -6,9 +6,9 @@ runtime=10
 
 
 path="/newhome/mahimahi/src/tests"
-num_flows=1
+num_flows=3
 port_base=44444
-kbs=1000
+kbs=100000
 
 downlink_advlogpath="/newhome/mahimahi/src/tests/log_advlink_advdownlink_"
 downlink_logpath="/newhome/mahimahi/src/tests/log_advlink_downlink_"

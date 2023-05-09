@@ -10,13 +10,13 @@
 
 void usage()
 {
-    printf("./test_advlinkshell_client $MAHIMAHI_BASE <port>\n");
+    printf("./test_advlinkshell_client $MAHIMAHI_BASE <port> <flowid>\n");
 }
 
 
 int main( int argc, char* argv[])
 {
-    if (argc != 3)
+    if (argc != 4)
     {
         usage();
         return 0;
@@ -26,6 +26,7 @@ int main( int argc, char* argv[])
     int port;
     struct sockaddr_in servaddr;
     int connected=0;
+    int flowid;
     char buf[BUFSIZ];
     if (!server)
     {
@@ -35,6 +36,7 @@ int main( int argc, char* argv[])
     memset(server, '\0', 16);
     server=argv[1];
     port=atoi(argv[2]);
+    flowid = atoi(argv[3]);
 
     memset(&servaddr,0,sizeof(servaddr));
     servaddr.sin_family=AF_INET;
@@ -45,13 +47,13 @@ int main( int argc, char* argv[])
     
     if((sockfd=socket(PF_INET,SOCK_STREAM,0))<0)
 	{
-		printf("client: socket error %s\n", strerror(errno));
+		printf("client %d: socket error %s\n",flowid,  strerror(errno));
 		return 0;
 	}
 	int reuse = 1;
     if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &reuse, sizeof(reuse)) < 0)
 	{
-		printf("client: TCP_NODELAY error: %s\n", strerror(errno));
+		printf("client %d: TCP_NODELAY error: %s\n", flowid, strerror(errno));
 		close(sockfd);
 		return 0;
 	}
@@ -61,19 +63,19 @@ int main( int argc, char* argv[])
     {
         if(connect(sockfd,(struct sockaddr *)&servaddr,sizeof(struct sockaddr))<0)
         {
-            printf("client: Trying to connect to %s on port %d\n",server, port);
+            printf("client %d: Trying to connect to %s on port %d\n",flowid, server, port);
             usleep(500000);
         }
         else
         {
             connected=1;
-            printf("client: Connected!\n");
+            printf("client %d: Connected!\n", flowid);
             break;
         }
     }
     if(!connected)
     {
-        printf("No success after 120 tries..\n");
+        printf("client %d: No success after 120 tries..\n", flowid);
         close(sockfd);
         return 0;
     }
@@ -84,11 +86,11 @@ int main( int argc, char* argv[])
         len=recv(sockfd, buf, BUFSIZ, 0);
         if (len <= 0)
         {
-            printf("client: recv returned negative\n");
+            printf("client %d: recv returned negative\n", flowid);
             break;
         }
     }
     close(sockfd);
-    printf("client: done\n");
+    printf("client %d: done\n", flowid);
     return 0;
 }
