@@ -13,10 +13,15 @@
 #include "binned_livegraph.hh"
 #include "abstract_packet_queue.hh"
 
+
+#define MDEBUG
+
 class LinkQueue
 {
 private:
     const static unsigned int PACKET_SIZE = 1504; /* default max TUN payload size */
+
+    std::string link_name_;
 
     unsigned int next_delivery_;
     std::vector<uint64_t> schedule_;
@@ -34,6 +39,15 @@ private:
     bool repeat_;
     bool finished_;
 
+    /* Updates TODO
+        1. Add file descriptor for named pipe
+    */
+#ifdef MDEBUG
+    std::unique_ptr<std::ofstream> debug_;
+#endif
+    int last_recieved_bw_;
+    int live_fd_;
+
     uint64_t next_delivery_time( void ) const;
 
     void use_a_delivery_opportunity( void );
@@ -45,6 +59,11 @@ private:
 
     void rationalize( const uint64_t now );
     void dequeue_packet( void );
+
+
+    /* Updates TODO
+        1. function to read from named pipe
+    */
 
 public:
     LinkQueue( const std::string & link_name, const std::string & filename, const std::string & logfile,

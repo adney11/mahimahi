@@ -3,11 +3,17 @@
 #include <limits>
 #include <cassert>
 
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
+
 #include "link_queue.hh"
 #include "timestamp.hh"
 #include "util.hh"
 #include "ezio.hh"
 #include "abstract_packet_queue.hh"
+
+#include <errno.h>
 
 using namespace std;
 
@@ -15,7 +21,8 @@ LinkQueue::LinkQueue( const string & link_name, const string & filename, const s
                       const bool repeat, const bool graph_throughput, const bool graph_delay,
                       unique_ptr<AbstractPacketQueue> && packet_queue,
                       const string & command_line )
-    : next_delivery_( 0 ),
+    : link_name_( link_name ),
+      next_delivery_( 0 ),
       schedule_(),
       base_timestamp_( timestamp() ),
       packet_queue_( move( packet_queue ) ),
@@ -26,7 +33,12 @@ LinkQueue::LinkQueue( const string & link_name, const string & filename, const s
       throughput_graph_( nullptr ),
       delay_graph_( nullptr ),
       repeat_( repeat ),
-      finished_( false )
+      finished_( false ),
+#ifdef MDEBUG
+      debug_(),
+#endif
+      last_recieved_bw_(),
+      live_fd_()
 {
     assert_not_root();
 
@@ -101,6 +113,37 @@ LinkQueue::LinkQueue( const string & link_name, const string & filename, const s
                                                  1, false, 250,
                                                  [] ( int, int & x ) { x = -1; } ) );
     }
+
+
+    /* Updates ONGOING
+        1. Open a file descriptor for the adversarial pipe using open() - DONE
+    */
+
+#ifdef MDEBUG
+    debug_.reset( new ofstream( "/newhome/link_debug" ) );
+    if ( not debug_->good() ) {
+        throw runtime_error( "/newhome/link_debug couldn't be opened for writing ");
+    }
+    *debug_ << "INIT: Made Debug file successfully" << endl;
+#endif
+
+    if (link_name_ == "Downlink") {
+        live_fd_ = open("/newhome/adversary_update", O_RDONLY | O_NONBLOCK);
+        if ( live_fd_ < 0 ) {
+            throw runtime_error( "was unable to open /newhome/adversary_update" );
+        } 
+#ifdef MDEBUG
+        else {
+            *debug_ << "live_fd_ opened with value: " << live_fd_ << endl;
+        }
+#endif
+        *debug_ << "Downlink here - opened pipe for reading" << endl;
+    } else {
+        *debug_ << "Uplink here - not opening pipe" << endl;
+    }
+
+
+    last_recieved_bw_ = 0;
 }
 
 void LinkQueue::record_arrival( const uint64_t arrival_time, const size_t pkt_size )
@@ -212,6 +255,51 @@ void LinkQueue::use_a_delivery_opportunity( void )
    calculating the wait_time until the next event */
 void LinkQueue::rationalize( const uint64_t now )
 {
+
+    /* Updates TODO
+    1. Add logic to read pipe for bandwidth value here
+    2. Convert bandwidth value into packet_trace vector
+    3. Replace schedule_ vector and reset next_delivery_ to 0
+    */
+    char buf[BUFSIZ];
+    int recvd_bw;
+    char* ptr;
+    // 1
+
+    // struct stat file_stat;
+    // int err = stat("/newhome/adversary_update", &file_stat);
+    // if (err < 0) {
+    //     throw runtime_error( "couldn't stat /newhome/adversary_update" );
+    // }
+
+    if (link_name_ == "Downlink") {
+        memset(buf, '\0', sizeof(buf));
+        int ret = read(live_fd_, &buf, sizeof(buf));
+        if ( ret < 0 ) {
+        //*debug_ << "ret returned " << ret << "with errno: " << strerror(errno) << endl;
+        // do nothing
+        } else if ( ret == 0 ) {
+#ifdef MDEBUG
+            *debug_ << "ret return 0, cause pipe was closed" << endl;
+#endif 
+        } else {
+#ifdef MDEBUG
+            *debug_ << "buf is: " << buf << endl;
+#endif
+            ptr = strtok (buf, ",");
+            recvd_bw = atoi(ptr);
+            if (last_recieved_bw_ != recvd_bw) {
+#ifdef MDEBUG
+                *debug_ << "received new bw: " << recvd_bw << endl;
+#endif
+                last_recieved_bw_ = recvd_bw;
+            }
+        }
+    }
+
+    
+
+
     while ( next_delivery_time() <= now ) {
         const uint64_t this_delivery_time = next_delivery_time();
 
