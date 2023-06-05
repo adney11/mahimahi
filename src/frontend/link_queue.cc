@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <cmath>
 
 #include "link_queue.hh"
 #include "timestamp.hh"
@@ -115,34 +116,29 @@ LinkQueue::LinkQueue( const string & link_name, const string & filename, const s
     }
 
 
-    /* Updates ONGOING
+    /* Updates DONE
         1. Open a file descriptor for the adversarial pipe using open() - DONE
     */
 
+    if (link_name_ == "Downlink") {
 #ifdef MDEBUG
-    debug_.reset( new ofstream( "/newhome/link_debug" ) );
-    if ( not debug_->good() ) {
-        throw runtime_error( "/newhome/link_debug couldn't be opened for writing ");
-    }
-    *debug_ << "INIT: Made Debug file successfully" << endl;
+        debug_.reset( new ofstream( "/newhome/link_debug" ) );
+        if ( not debug_->good() ) {
+            throw runtime_error( "/newhome/link_debug couldn't be opened for writing ");
+        }
+        DLOG( *debug_ << "INIT: Made Debug file successfully" << endl; );
 #endif
 
-    if (link_name_ == "Downlink") {
         live_fd_ = open("/newhome/adversary_update", O_RDONLY | O_NONBLOCK);
         if ( live_fd_ < 0 ) {
+            DLOG( *debug_ << "got error: " << strerror(errno) << " with errno: " << errno << endl; );
             throw runtime_error( "was unable to open /newhome/adversary_update" );
         } 
-#ifdef MDEBUG
         else {
-            *debug_ << "live_fd_ opened with value: " << live_fd_ << endl;
+            DLOG( *debug_ << "live_fd_ opened with value: " << live_fd_ << endl; );
         }
-#endif
-        *debug_ << "Downlink here - opened pipe for reading" << endl;
-    } else {
-        *debug_ << "Uplink here - not opening pipe" << endl;
+        DLOG( *debug_ << "Downlink here - opened pipe for reading" << endl; );
     }
-
-
     last_recieved_bw_ = 0;
 }
 
@@ -250,49 +246,102 @@ void LinkQueue::use_a_delivery_opportunity( void )
     }
 }
 
+
+
+
+std::vector<uint64_t> convertMbpsToPacketOpportunity(double mbps, int reps = 5) {
+    const int DENOMINATOR_FOR_1_MBPS = 12;
+
+    double num = mbps;
+    double den = DENOMINATOR_FOR_1_MBPS;
+
+    auto isInt = [&](double x) {
+        return (std::fmod(x, 1) == 0);
+    };
+
+    auto getGCD = [](int x, int y) {
+        while ( y > 0) {
+            int r = x % y;
+            x = y;
+            y = r;
+        }
+        return x;
+    };
+
+    while (!isInt(num) || !isInt(den)) {
+        num *= 10;
+        den *= 10;
+    }
+
+    int inum = (int)num;
+    int iden = (int)den;
+    int gcd;
+    while ((gcd = getGCD(inum, iden)) != 1) {
+        inum /= gcd;
+        iden /= gcd;
+    }
+
+    std::vector<uint64_t> packetOpportunity;
+    for (int ms = 0; ms < iden * reps; ms = ms + iden) {
+        for (int i = 0; i < inum; i++) {
+           packetOpportunity.push_back(ms);
+        }
+    }
+
+    return packetOpportunity;
+}
+
+
+
+
+
 /* emulate the link up to the given timestamp */
 /* this function should be called before enqueueing any packets and before
    calculating the wait_time until the next event */
 void LinkQueue::rationalize( const uint64_t now )
 {
 
-    /* Updates TODO
-    1. Add logic to read pipe for bandwidth value here
-    2. Convert bandwidth value into packet_trace vector
-    3. Replace schedule_ vector and reset next_delivery_ to 0
+    /* Updates DONE
+    1. Add logic to read pipe for bandwidth value here - DONE
+    2. Convert bandwidth value into packet_trace vector - DONE
+    3. Replace schedule_ vector and reset next_delivery_ to 0 - DONE
     */
-    char buf[BUFSIZ];
-    int recvd_bw;
-    char* ptr;
+
     // 1
-
-    // struct stat file_stat;
-    // int err = stat("/newhome/adversary_update", &file_stat);
-    // if (err < 0) {
-    //     throw runtime_error( "couldn't stat /newhome/adversary_update" );
-    // }
-
     if (link_name_ == "Downlink") {
+        char buf[BUFSIZ];
+        double recvd_bw;
+        char* ptr;
         memset(buf, '\0', sizeof(buf));
         int ret = read(live_fd_, &buf, sizeof(buf));
         if ( ret < 0 ) {
-        //*debug_ << "ret returned " << ret << "with errno: " << strerror(errno) << endl;
-        // do nothing
+            //DLOG( *debug_ << "ret returned " << ret << "with errno: " << strerror(errno) << endl; );
+            // do nothing
         } else if ( ret == 0 ) {
-#ifdef MDEBUG
-            *debug_ << "ret return 0, cause pipe was closed" << endl;
-#endif 
+            //DLOG( *debug_ << "ret return 0, cause pipe was closed" << endl; );
         } else {
-#ifdef MDEBUG
-            *debug_ << "buf is: " << buf << endl;
-#endif
+            buf[ret] = '\0';
+            DLOG ( *debug_ << "read " << ret << " bytes from pipe" << endl; );
+            DLOG( *debug_ << "buf is: " << buf << endl; );
             ptr = strtok (buf, ",");
-            recvd_bw = atoi(ptr);
+            recvd_bw = std::stod(ptr);
             if (last_recieved_bw_ != recvd_bw) {
-#ifdef MDEBUG
-                *debug_ << "received new bw: " << recvd_bw << endl;
-#endif
+                DLOG( *debug_ << "received new bw: " << recvd_bw << endl; );
                 last_recieved_bw_ = recvd_bw;
+                // 2
+                auto new_schedule = convertMbpsToPacketOpportunity(recvd_bw);
+                // schedule_: [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3], 4 pkts 1 ms, 7.5mbps
+                // delta recvd_bw: +1.5mbps => 9mbps
+                // [0, 0, 0, 4, 4, 4, 8, 8, 8, 12, 12, 12]
+                // Q1: we can append  ...2, 3, 3, 3, 3] ->  ...2, 3, 3, 3, 3, 7, 7, 7, 11, 11, ..]
+                // Q2: can we know where the current idx of schedule_?
+                // 
+                // new_schedule: [+1] # length of a 100
+                // schedule_: [1, max(2+1, next), 4]
+                // 3
+                schedule_.swap(new_schedule);
+                next_delivery_ = 0;
+
             }
         }
     }

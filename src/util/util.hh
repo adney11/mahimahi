@@ -35,4 +35,12 @@ public:
 
 void assert_not_root( void );
 
+
+// debug related
+#ifdef MDEBUG
+#define DLOG( statement ) do{ statement; }while(0)
+#else
+#define DLOG( statement )
+#endif
+
 #endif /* UTIL_HH */
