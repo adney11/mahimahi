@@ -339,6 +339,7 @@ void LinkQueue::rationalize( const uint64_t now )
                 // new_schedule: [+1] # length of a 100
                 // schedule_: [1, max(2+1, next), 4]
                 // 3
+                base_timestamp_ += schedule_.at(next_delivery_);
                 schedule_.swap(new_schedule);
                 next_delivery_ = 0;
 
