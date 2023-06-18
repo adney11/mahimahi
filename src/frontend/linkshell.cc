@@ -30,6 +30,7 @@ void usage_error( const string & program_name )
     cerr << "                  target, interval, qdelay_ref, max_burst are in milli-second" << endl << endl;
 
     throw runtime_error( "invalid arguments" );
+    
 }
 
 unique_ptr<AbstractPacketQueue> get_packet_queue( const string & type, const string & args, const string & program_name )
