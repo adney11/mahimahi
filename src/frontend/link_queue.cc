@@ -8,6 +8,8 @@
 #include <string.h>
 #include <cmath>
 
+#include <iostream>
+
 #include "link_queue.hh"
 #include "timestamp.hh"
 #include "util.hh"
@@ -17,6 +19,7 @@
 #include <errno.h>
 
 using namespace std;
+
 
 LinkQueue::LinkQueue( const string & link_name, const string & filename, const string & logfile,
                       const bool repeat, const bool graph_throughput, const bool graph_delay,
@@ -35,10 +38,15 @@ LinkQueue::LinkQueue( const string & link_name, const string & filename, const s
       delay_graph_( nullptr ),
       repeat_( repeat ),
       finished_( false ),
+      is_adversary_( false ),
 #ifdef MDEBUG
       debug_(),
 #endif
       last_recieved_bw_(),
+      last_recieved_delay_(),
+      packets_this_departure_time_(0),
+      prev_departure_time_(0),
+      next_possible_departure_time_(0),
       live_fd_()
 {
     assert_not_root();
@@ -128,7 +136,7 @@ LinkQueue::LinkQueue( const string & link_name, const string & filename, const s
         }
         DLOG( *debug_ << "INIT: Made Debug file successfully" << endl; );
 #endif
-
+        is_adversary_ = true;
         live_fd_ = open("/newhome/adversary_update", O_RDONLY | O_NONBLOCK);
         if ( live_fd_ < 0 ) {
             DLOG( *debug_ << "got error: " << strerror(errno) << " with errno: " << errno << endl; );
@@ -138,8 +146,11 @@ LinkQueue::LinkQueue( const string & link_name, const string & filename, const s
             DLOG( *debug_ << "live_fd_ opened with value: " << live_fd_ << endl; );
         }
         DLOG( *debug_ << "Downlink here - opened pipe for reading" << endl; );
+    } else {
+        is_adversary_ = false;
     }
-    last_recieved_bw_ = 0;
+    last_recieved_bw_ = 1;
+    last_recieved_delay_ = 0;
 }
 
 void LinkQueue::record_arrival( const uint64_t arrival_time, const size_t pkt_size )
@@ -226,7 +237,13 @@ uint64_t LinkQueue::next_delivery_time( void ) const
     if ( finished_ ) {
         return -1;
     } else {
-        return schedule_.at( next_delivery_ ) + base_timestamp_;
+        if (is_adversary_) {
+            DLOG ( *debug_ << "next_delivery_time: " << base_timestamp_ + (uint64_t)(next_delivery_ * 8.0 * 1500.0 * 1000.0 / last_recieved_bw_) << endl; );
+            return base_timestamp_ + (uint64_t)(next_delivery_ * 8.0 * 1500.0 * 1000.0 / last_recieved_bw_);
+        } else {
+            return schedule_.at( next_delivery_ ) + base_timestamp_;
+        }
+        
     }
 }
 
@@ -234,16 +251,22 @@ void LinkQueue::use_a_delivery_opportunity( void )
 {
     record_departure_opportunity();
 
-    next_delivery_ = (next_delivery_ + 1) % schedule_.size();
+    if (is_adversary_) {
+        next_delivery_ += 1;
+    } else {
+        next_delivery_ = (next_delivery_ + 1) % schedule_.size();
 
-    /* wraparound */
-    if ( next_delivery_ == 0 ) {
-        if ( repeat_ ) {
-            base_timestamp_ += schedule_.back();
-        } else {
-            finished_ = true;
+        /* wraparound */
+        if ( next_delivery_ == 0 ) {
+            if ( repeat_ ) {
+                base_timestamp_ += schedule_.back();
+            } else {
+                finished_ = true;
+            }
         }
     }
+
+    
 }
 
 
@@ -308,9 +331,10 @@ void LinkQueue::rationalize( const uint64_t now )
     */
 
     // 1
-    if (link_name_ == "Downlink") {
+    if (is_adversary_) {
         char buf[BUFSIZ];
         double recvd_bw;
+        double recvd_delay;
         char* ptr;
         memset(buf, '\0', sizeof(buf));
         int ret = read(live_fd_, &buf, sizeof(buf));
@@ -325,11 +349,13 @@ void LinkQueue::rationalize( const uint64_t now )
             DLOG( *debug_ << "buf is: " << buf << endl; );
             ptr = strtok (buf, ",");
             recvd_bw = std::stod(ptr);
-            if (last_recieved_bw_ != recvd_bw) {
+            ptr = strtok (NULL, ",");
+            recvd_delay = std::stod(ptr);
+            if (/*last_recieved_bw_ != recvd_bw*/true) {
                 DLOG( *debug_ << "received new bw: " << recvd_bw << endl; );
-                last_recieved_bw_ = recvd_bw;
+                last_recieved_bw_ = recvd_bw * 1000000.0;
                 // 2
-                auto new_schedule = convertMbpsToPacketOpportunity(recvd_bw);
+                //auto new_schedule = convertMbpsToPacketOpportunity(recvd_bw);
                 // schedule_: [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3], 4 pkts 1 ms, 7.5mbps
                 // delta recvd_bw: +1.5mbps => 9mbps
                 // [0, 0, 0, 4, 4, 4, 8, 8, 8, 12, 12, 12]
@@ -339,9 +365,16 @@ void LinkQueue::rationalize( const uint64_t now )
                 // new_schedule: [+1] # length of a 100
                 // schedule_: [1, max(2+1, next), 4]
                 // 3
-                base_timestamp_ += schedule_.at(next_delivery_);
-                schedule_.swap(new_schedule);
+                // base_timestamp_ += schedule_.at(next_delivery_);
+                // schedule_.swap(new_schedule);
+                // next_delivery_ = 0;
+                DLOG( *debug_ << "recieved new delay: " << recvd_delay << endl; );
+                last_recieved_delay_ = recvd_delay;
+                base_timestamp_ = now;
                 next_delivery_ = 0;
+
+
+                // TODO - send out link stats to another pipe, that adversary can read from
 
             }
         }
@@ -366,6 +399,11 @@ void LinkQueue::rationalize( const uint64_t now )
                 packet_in_transit_bytes_left_ = packet_in_transit_.contents.size();
             }
 
+            if (packet_in_transit_.arrival_time > this_delivery_time) {
+                std::cerr << "Delivery time: " << this_delivery_time << std::endl;
+                std::cerr << "Arrival time: " << packet_in_transit_.arrival_time << std::endl;
+            }
+
             assert( packet_in_transit_.arrival_time <= this_delivery_time );
             assert( packet_in_transit_bytes_left_ <= PACKET_SIZE );
             assert( packet_in_transit_bytes_left_ > 0 );
@@ -381,20 +419,65 @@ void LinkQueue::rationalize( const uint64_t now )
 
             /* has the packet been fully sent? */
             if ( packet_in_transit_bytes_left_ == 0 ) {
-                record_departure( this_delivery_time, packet_in_transit_ );
+                const uint64_t departure_time = get_departure_time( this_delivery_time );
+
+                record_departure( departure_time, packet_in_transit_ );
 
                 /* this packet is ready to go */
-                output_queue_.push( move( packet_in_transit_.contents ) );
+                //output_queue_.push( move( packet_in_transit_.contents ) );
+                output_queue_.push( make_pair(departure_time, move(packet_in_transit_.contents)) );
+
             }
         }
     }
 }
 
+uint64_t LinkQueue::get_departure_time(uint64_t delivery_time) {
+    if (! is_adversary_) {
+        return delivery_time;
+    } 
+
+    uint64_t departure_time = delivery_time + last_recieved_delay_;
+    if (departure_time <= next_possible_departure_time_) {
+        departure_time = next_possible_departure_time_;
+    }
+    
+    if (departure_time == prev_departure_time_) {
+        packets_this_departure_time_ += 1;
+        if (packets_this_departure_time_ == 4) {
+            next_possible_departure_time_ += 1;
+            packets_this_departure_time_ = 0;
+        }
+    } else {
+        packets_this_departure_time_ = 1;
+    }
+    prev_departure_time_ = departure_time;
+
+    if (next_possible_departure_time_ < departure_time) {
+        next_possible_departure_time_ = departure_time;
+    }
+    DLOG ( *debug_ << "get_departure_time: " << departure_time << " for supplied delivery time: " << delivery_time << " at current time: " << timestamp() << endl; );
+    return departure_time;
+}
+
 void LinkQueue::write_packets( FileDescriptor & fd )
 {
+    // Updates to do:
+    // Need to check if packet's departure time is less than equal to current timestamp()
+    // output_queue will need to store the packet departure time as well
+
+    // while ( not output_queue_.empty() ) {
+    //     fd.write( output_queue_.front() );
+    //     output_queue_.pop();
+    // }
+    
     while ( not output_queue_.empty() ) {
-        fd.write( output_queue_.front() );
-        output_queue_.pop();
+        if (output_queue_.front().first <= timestamp()) {
+            fd.write( output_queue_.front().second );
+            output_queue_.pop();
+        } else {
+            break;
+        }
     }
 }
 
@@ -404,14 +487,37 @@ unsigned int LinkQueue::wait_time( void )
 
     rationalize( now );
 
-    if ( next_delivery_time() <= now ) {
-        return 0;
+
+    if (is_adversary_) {
+        if (output_queue_.empty()){
+            return 1;
+        }
+        
+        if (output_queue_.front().first <= now) {
+            return 0;
+        } else {
+            return output_queue_.front().first - now;
+        }
+
     } else {
-        return next_delivery_time() - now;
+        if ( next_delivery_time() <= now ) {
+            return 0;
+        } else {
+            return next_delivery_time() - now;
+        }
     }
 }
 
 bool LinkQueue::pending_output( void ) const
 {
-    return not output_queue_.empty();
+    if (output_queue_.empty()) {
+        return false;
+    }
+
+    if (is_adversary_) {
+        return output_queue_.front().first <= timestamp();
+    } else {
+        return true;
+    }
+    //return not output_queue_.empty();
 }

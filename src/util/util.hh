@@ -11,6 +11,8 @@
 
 #include "address.hh"
 
+#define MDEBUG
+
 std::string shell_path( void );
 void drop_privileges( void );
 void check_requirements( const int argc, const char * const argv[] );

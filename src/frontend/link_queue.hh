@@ -30,7 +30,10 @@ private:
     std::unique_ptr<AbstractPacketQueue> packet_queue_;
     QueuedPacket packet_in_transit_;
     unsigned int packet_in_transit_bytes_left_;
-    std::queue<std::string> output_queue_;
+    std::queue<std::pair<uint64_t, std::string> > output_queue_;
+
+    //std::queue<std::pair<uint64_t, std::string> > packet_queue_;
+
 
     std::unique_ptr<std::ofstream> log_;
     std::unique_ptr<BinnedLiveGraph> throughput_graph_;
@@ -42,10 +45,17 @@ private:
     /* Updates TODO
         1. Add file descriptor for named pipe
     */
+
+    bool is_adversary_;
+
 #ifdef MDEBUG
     std::unique_ptr<std::ofstream> debug_;
 #endif
     int last_recieved_bw_;
+    int last_recieved_delay_;
+    uint64_t packets_this_departure_time_;
+    uint64_t prev_departure_time_;
+    uint64_t next_possible_departure_time_;
     int live_fd_;
 
     uint64_t next_delivery_time( void ) const;
@@ -56,6 +66,8 @@ private:
     void record_drop( const uint64_t time, const size_t pkts_dropped, const size_t bytes_dropped );
     void record_departure_opportunity( void );
     void record_departure( const uint64_t departure_time, const QueuedPacket & packet );
+
+    uint64_t get_departure_time(uint64_t delivery_time);
 
     void rationalize( const uint64_t now );
     void dequeue_packet( void );
